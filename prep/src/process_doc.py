@@ -39,9 +39,8 @@ def main() -> None:
     })
 
     # Now that we have the individuals what is most useful to us right now?
-    db = {}
+    db = []
     dupes = [] # We will just use name for duplicates for now
-    id = 0
     for _, row in primary_names.iterrows():
         complete_name = " ".join(str(name) for name in [row["Name 1"], row["Name 2"], row["Name 3"], row["Name 4"], row["Name 5"], row["Name 1"]] if str(name) != "nan")
         if complete_name in dupes:
@@ -55,7 +54,6 @@ def main() -> None:
         reason = row["UK Statement of Reasons"]
         other_information = row["Other Information"]
 
-        key = id
         individual = {
             "name": complete_name,
             "nationality": nationality,
@@ -68,9 +66,8 @@ def main() -> None:
             "other information": other_information
         } 
         
-        db[key] = individual
+        db.append(individual)
         dupes.append(complete_name)
-        id += 1
 
     # Now we have our cleaned set of people.
     sanction_file_path = Path("./data/Cleaned-Sanctions.json")
