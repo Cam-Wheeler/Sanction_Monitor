@@ -1,0 +1,112 @@
+networks:
+  sanction-net:
+    driver: bridge # private internal docker network boots up. 
+
+services:
+  kafka-1:
+    image: apache/kafka:3.7.0
+    container_name: kafka-1 # Name the container, so can we easily work with the comms.
+    networks: 
+      - sanction-net # Place it in our network.
+    environment:
+      KAFKA_NODE_ID: 1 # Unique int for KRaft, allows brokers to ID internally.
+      KAFKA_PROCESS_ROLES: broker,controller # Set the node to be a broker and a controller (shared between all 3 nodes).
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093 # 9092 for comms with producers and consumers. 9093 for controller comms. 
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092 # Tells clients what to use when attempting to connect (only port 9092).
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT # Defines what protocol used for security (we have non, but this could be SSL in prod).
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER # Tells Kafka which listener is the controller.
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT # Tells Kafka which listener brokers should be using when discussing replication (actually moving data around).
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093 # Lists the other brokers for voting (new leader etc).
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3 # Tells Kafka that we want to track the offsets across all 3 brokers. So we track where each consumer group is across all the 3 topics. 
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3 # Set the default replication factor.
+      KAFKA_MIN_INSYNC_REPLICAS: 2 # Important for availablity, we need at least 2 up and running before acks=all return!
+      KAFKA_NUM_PARTITIONS: 3 # Number of partitions in the tooics created. 
+      KAFKA_CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk # UID for the cluster so Kafka knows what brokers belong to this cluster.
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "kafka-1:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  kafka-2:
+    image: apache/kafka:3.7.0
+    container_name: kafka-2
+    networks:
+      - sanction-net
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "kafka-2:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+      
+  kafka-3:
+    image: apache/kafka:3.7.0
+    container_name: kafka-3
+    networks:
+      - sanction-net
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "kafka-3:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    networks:
+      - sanction-net
+    ports:
+      - 9000:8080
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    environment:
+      KAFKA_CLUSTERS_0_NAME: Sanction-Monitor
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092 # We connect to 9092 as 9093 is purely for internal cluster management. 
+
+  transaction-service:
+    build: ./transactiongenerator/
+    container_name: transaction-service
+    networks:
+      - sanction-net
+    ports:
+      - 8080:8080
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
