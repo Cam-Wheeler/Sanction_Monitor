@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-init
+  namespace: sanction-monitor
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: db-init
+          image: sanction-monitor/db-init:latest
+          imagePullPolicy: Never
+          env:
+            - name: DB_HOST
+              value: "sanctions-db"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: sanction-monitor-secrets
+                  key: SANCTIONS_DB_NAME
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: sanction-monitor-secrets
+                  key: SANCTIONS_DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sanction-monitor-secrets
+                  key: SANCTIONS_DB_PASSWORD

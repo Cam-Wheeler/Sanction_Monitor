@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analyser-taskmanager
+  namespace: sanction-monitor
+  labels:
+    app: analyser-taskmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analyser-taskmanager
+  template:
+    metadata:
+      labels:
+        app: analyser-taskmanager
+    spec:
+      initContainers:
+        - name: wait-for-jobmanager
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for JobManager..."
+              until nc -z analyser-jobmanager 6123; do
+                sleep 2
+              done
+              echo "JobManager is ready."
+      containers:
+        - name: taskmanager
+          image: sanction-monitor/transaction-analyser:latest
+          imagePullPolicy: Never
+          args: ["taskmanager"]
+          env:
+            - name: JOB_MANAGER_RPC_ADDRESS
+              value: "analyser-jobmanager"
+            - name: TASK_MANAGER_NUMBER_OF_TASK_SLOTS
+              value: "2"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sanction-monitor-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 1Gi
+              cpu: 500m

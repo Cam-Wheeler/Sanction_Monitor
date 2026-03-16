@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sanctions-db
+  namespace: sanction-monitor
+  labels:
+    app: sanctions-db
+spec:
+  serviceName: sanctions-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sanctions-db
+  template:
+    metadata:
+      labels:
+        app: sanctions-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: sanction-monitor-secrets
+                  key: SANCTIONS_DB_NAME
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: sanction-monitor-secrets
+                  key: SANCTIONS_DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sanction-monitor-secrets
+                  key: SANCTIONS_DB_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              subPath: pgdata
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d/init.sql
+              subPath: sanctions-init.sql
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - sanctions_user
+                - -d
+                - sanctions
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 256Mi
+              cpu: 250m
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: init-scripts
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sanctions-db
+  namespace: sanction-monitor
+spec:
+  selector:
+    app: sanctions-db
+  ports:
+    - port: 5432
+      targetPort: 5432

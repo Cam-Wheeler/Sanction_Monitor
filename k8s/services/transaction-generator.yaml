@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-generator
+  namespace: sanction-monitor
+  labels:
+    app: transaction-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transaction-generator
+  template:
+    metadata:
+      labels:
+        app: transaction-generator
+    spec:
+      initContainers:
+        - name: wait-for-kafka
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka..."
+              until nc -z kafka.sanction-monitor.svc.cluster.local 9092; do
+                sleep 2
+              done
+              echo "Kafka is ready."
+      containers:
+        - name: transaction-generator
+          image: sanction-monitor/transaction-generator:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: app-config
+              mountPath: /app/application.properties
+              subPath: application.properties
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 250m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+      volumes:
+        - name: app-config
+          configMap:
+            name: app-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-generator
+  namespace: sanction-monitor
+spec:
+  selector:
+    app: transaction-generator
+  ports:
+    - port: 8080
+      targetPort: 8080

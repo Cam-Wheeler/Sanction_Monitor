@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: sanction-monitor
+data:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.sanction-monitor.svc.cluster.local:9092"
+  MATCH_THRESHOLD: "0.5"
+  RUST_LOG: "info"
+  KAFKA_GROUP_ID: "storage-consumer-group"
+
+  # Transaction Generator application.properties override
+  application.properties: |
+    spring.application.name=transactiongenerator
+    data.sanction.json=classpath:data/Cleaned-Sanctions.json
+    data.valid.json=classpath:data/Valid.json
+    kafka.bootstrap-servers=kafka.sanction-monitor.svc.cluster.local:9092
+    kafka.acks=all
+    kafka.key-serializer=org.apache.kafka.common.serialization.StringSerializer
+    kafka.value-serializer=org.apache.kafka.common.serialization.StringSerializer
+    kafka.topic-name=transactions-topic

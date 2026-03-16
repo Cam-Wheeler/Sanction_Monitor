@@ -1,0 +1,59 @@
+# Bitnami Kafka Helm chart values for Sanction Monitor
+# Install: helm install kafka oci://registry-1.docker.io/bitnamicharts/kafka -n sanction-monitor -f values.yaml
+
+# Allow legacy images (bitnami/ removed from Docker Hub)
+global:
+  security:
+    allowInsecureImages: true
+
+image:
+  registry: docker.io
+  repository: bitnamilegacy/kafka
+  tag: 4.0.0-debian-12-r10
+
+volumePermissions:
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/os-shell
+    tag: 12-debian-12-r51
+
+# KRaft mode (no ZooKeeper)
+kraft:
+  enabled: true
+
+# Combined controller+broker mode (3 nodes)
+controller:
+  replicaCount: 3
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1Gi
+      cpu: 500m
+
+# No separate broker nodes — using combined mode
+broker:
+  replicaCount: 0
+
+# Listener configuration
+listeners:
+  client:
+    protocol: PLAINTEXT
+  interbroker:
+    protocol: PLAINTEXT
+  controller:
+    protocol: PLAINTEXT
+
+# Topic defaults
+numPartitions: 3
+defaultReplicationFactor: 3
+minInsyncReplicas: 2
+
+# Ephemeral storage (matches Docker Compose behavior)
+persistence:
+  enabled: false
+
+# Topic provisioning disabled — handled by deploy.sh after brokers are ready
+provisioning:
+  enabled: false

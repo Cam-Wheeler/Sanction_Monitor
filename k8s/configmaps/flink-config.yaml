@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flink-config
+  namespace: sanction-monitor
+data:
+  config.yaml: |
+    jobmanager:
+      rpc:
+        address: analyser-jobmanager
+        port: 6123
+      memory:
+        process:
+          size: 1600m
+      bind-host: 0.0.0.0
+      execution:
+        failover-strategy: region
+    taskmanager:
+      memory:
+        process:
+          size: 1728m
+      bind-host: 0.0.0.0
+      numberOfTaskSlots: 2
+    rest:
+      bind-address: 0.0.0.0
+      address: 0.0.0.0
+    parallelism:
+      default: 1
