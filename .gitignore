@@ -42,6 +42,14 @@ build/
 ### VS Code ###
 .vscode/
 
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+crash.log
+override.tf
+override.tf.json
+
 # Git
 .github
 .gitattributes
