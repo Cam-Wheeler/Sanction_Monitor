@@ -1,3 +1,9 @@
+# Secrets
+.env
+terraform.tfvars
+*.auto.tfvars
+terraform/**/*.tfvars
+
 # Python
 
 

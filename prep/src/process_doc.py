@@ -42,7 +42,7 @@ def main() -> None:
     db = []
     dupes = [] # We will just use name for duplicates for now
     for _, row in primary_names.iterrows():
-        complete_name = " ".join(str(name) for name in [row["Name 1"], row["Name 2"], row["Name 3"], row["Name 4"], row["Name 5"], row["Name 1"]] if str(name) != "nan")
+        complete_name = " ".join(str(name) for name in [row["Name 1"], row["Name 2"], row["Name 3"], row["Name 4"], row["Name 5"], row["Name 6"]] if str(name) != "nan")
         if complete_name in dupes:
             continue
         nationality = row["Nationality(/ies)"]

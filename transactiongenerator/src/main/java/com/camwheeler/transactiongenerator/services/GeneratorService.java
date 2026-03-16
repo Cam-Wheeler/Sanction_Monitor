@@ -74,12 +74,9 @@ public class GeneratorService {
 
 private List<String> transactionTypes = List.of(
     "Cash Deposit",
-    "Cash Withdrawal",
     "Wire Transfer",
-    "Credit Card Purchase",
     "Debit Card Transaction",
     "Check Deposit",
-    "ATM Transaction",
     "Cryptocurrency Transfer"
 );
 

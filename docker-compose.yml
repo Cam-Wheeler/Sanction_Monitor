@@ -1,6 +1,11 @@
+volumes:
+  sanctions-data:
+  dashboard-data:
+
+
 networks:
   sanction-net:
-    driver: bridge # private internal docker network boots up. 
+    driver: bridge # private internal docker network boots up.
 
 services:
   kafka-1:
@@ -100,6 +105,45 @@ services:
     restart:
       no
 
+  sanctions-db:
+    image: postgres:16-alpine
+    container_name: sanctions-db
+    networks:
+      - sanction-net
+    environment:
+      POSTGRES_DB: sanctions
+      POSTGRES_USER: sanctions_user
+      POSTGRES_PASSWORD: sanctions_pass
+    volumes:
+      - ./infrastructure/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - sanctions-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sanctions_user -d sanctions"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  db-init:
+    build:
+      context: ./infrastructure/db
+      dockerfile: Dockerfile.db-init
+    container_name: db-init
+    networks:
+      - sanction-net
+    depends_on:
+      sanctions-db:
+        condition: service_healthy
+    environment:
+      DB_HOST: sanctions-db
+      DB_PORT: "5432"
+      DB_NAME: sanctions
+      DB_USER: sanctions_user
+      DB_PASSWORD: sanctions_pass
+    volumes:
+      - ./transactiongenerator/src/main/resources/data/Cleaned-Sanctions.json:/data/Cleaned-Sanctions.json:ro
+    restart: "no"
+
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
@@ -125,3 +169,98 @@ services:
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+
+  filter-service:
+    build: ./transactionfilter/
+    container_name: filter-service
+    networks:
+      - sanction-net
+    environment:
+      DATABASE_URL: postgres://sanctions_user:sanctions_pass@sanctions-db:5432/sanctions
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      MATCH_THRESHOLD: "0.5"
+      RUST_LOG: info
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      db-init:
+        condition: service_completed_successfully
+
+  analyser-service:
+    build: ./transactionanalyser/
+    container_name: analyser-service
+    networks:
+      - sanction-net
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: analyser-service
+        taskmanager.numberOfTaskSlots: 2
+    command: standalone-job --job-classname com.camwheeler.transactionanalyser.AnalyserJob
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+  analyser-taskmanager:
+    build: ./transactionanalyser/
+    container_name: analyser-taskmanager
+    networks:
+      - sanction-net
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: analyser-service
+        taskmanager.numberOfTaskSlots: 2
+    command: taskmanager
+    depends_on:
+      - analyser-service
+
+  dashboard-db:
+    image: postgres:16-alpine
+    container_name: dashboard-db
+    networks:
+      - sanction-net
+    environment:
+      POSTGRES_DB: dashboard
+      POSTGRES_USER: dashboard_user
+      POSTGRES_PASSWORD: dashboard_pass
+    volumes:
+      - ./infrastructure/dashboard-db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - dashboard-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dashboard_user -d dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  storage-service:
+    build: ./storageconsumer/
+    container_name: storage-service
+    networks:
+      - sanction-net
+    environment:
+      DATABASE_URL: postgresql://dashboard_user:dashboard_pass@dashboard-db:5432/dashboard
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      KAFKA_GROUP_ID: storage-consumer-group
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      dashboard-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard-service:
+    build: ./dashboard/
+    container_name: dashboard-service
+    networks:
+      - sanction-net
+    ports:
+      - "8501:8501"
+    environment:
+      DATABASE_URL: postgresql://dashboard_user:dashboard_pass@dashboard-db:5432/dashboard
+    depends_on:
+      dashboard-db:
+        condition: service_healthy
+    restart: unless-stopped
