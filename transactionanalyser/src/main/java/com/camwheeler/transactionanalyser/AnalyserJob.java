@@ -1,10 +1,18 @@
 package com.camwheeler.transactionanalyser;
 
 import com.camwheeler.transactionanalyser.function.AnthropicAnalysisFunction;
+import com.camwheeler.transactionanalyser.function.FlaggedPartyKeySelector;
+import com.camwheeler.transactionanalyser.function.TransactionEnrichmentFunction;
 import com.camwheeler.transactionanalyser.model.AnalysisResult;
+import com.camwheeler.transactionanalyser.model.EnrichedFilterResult;
 import com.camwheeler.transactionanalyser.model.FilterResult;
 import com.camwheeler.transactionanalyser.serde.AnalysisResultSerializationSchema;
 import com.camwheeler.transactionanalyser.serde.FilterResultDeserializationSchema;
+import com.camwheeler.transactionanalyser.util.TimestampUtils;
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.Serializer;
+import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Output;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
@@ -15,6 +23,8 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class AnalyserJob {
@@ -46,6 +56,9 @@ public class AnalyserJob {
         env.setParallelism(1);
         env.enableCheckpointing(60_000);
 
+        // Register Kryo serialiser for UUID to avoid KryoException on checkpoint
+        env.getConfig().addDefaultKryoSerializer(UUID.class, UUIDSerializer.class);
+
         // Source: consume FilterResult JSON from flagged-transactions-topic
         KafkaSource<FilterResult> source = KafkaSource.<FilterResult>builder()
                 .setBootstrapServers(bootstrapServers)
@@ -55,13 +68,24 @@ public class AnalyserJob {
                 .setValueOnlyDeserializer(new FilterResultDeserializationSchema())
                 .build();
 
-        DataStream<FilterResult> flaggedTransactions = env
-                .fromSource(source, WatermarkStrategy.noWatermarks(), "Kafka Source")
-                .filter(FilterResult::flagged);
+        // Watermark strategy with bounded out-of-orderness for event-time processing
+        WatermarkStrategy<FilterResult> watermarkStrategy = WatermarkStrategy
+                .<FilterResult>forBoundedOutOfOrderness(Duration.ofMinutes(1))
+                .withTimestampAssigner((event, recordTimestamp) ->
+                        TimestampUtils.toEpochMillis(event.getTransaction().getDate(), event.getTransaction().getTime()));
 
-        // Async transform: call Anthropic API for each flagged transaction
+        DataStream<FilterResult> flaggedTransactions = env
+                .fromSource(source, watermarkStrategy, "Kafka Source")
+                .filter(FilterResult::isFlagged);
+
+        // Enrich each transaction with recent history for the same flagged party
+        DataStream<EnrichedFilterResult> enrichedTransactions = flaggedTransactions
+                .keyBy(new FlaggedPartyKeySelector())
+                .process(new TransactionEnrichmentFunction());
+
+        // Async transform: call Anthropic API for each enriched transaction
         DataStream<AnalysisResult> analysisResults = AsyncDataStream.unorderedWait(
-                flaggedTransactions,
+                enrichedTransactions,
                 new AnthropicAnalysisFunction(),
                 120,
                 TimeUnit.SECONDS,
@@ -77,5 +101,18 @@ public class AnalyserJob {
         analysisResults.sinkTo(sink);
 
         env.execute("Transaction Analyser");
+    }
+
+    public static class UUIDSerializer extends Serializer<UUID> {
+        @Override
+        public void write(Kryo kryo, Output output, UUID uuid) {
+            output.writeLong(uuid.getMostSignificantBits());
+            output.writeLong(uuid.getLeastSignificantBits());
+        }
+
+        @Override
+        public UUID read(Kryo kryo, Input input, Class<UUID> type) {
+            return new UUID(input.readLong(), input.readLong());
+        }
     }
 }

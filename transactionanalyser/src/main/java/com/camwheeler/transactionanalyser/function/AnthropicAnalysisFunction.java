@@ -6,6 +6,7 @@ import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.Model;
 import com.camwheeler.transactionanalyser.model.AnalysisResult;
+import com.camwheeler.transactionanalyser.model.EnrichedFilterResult;
 import com.camwheeler.transactionanalyser.model.FilterResult;
 import com.camwheeler.transactionanalyser.prompt.PromptBuilder;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -22,7 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class AnthropicAnalysisFunction extends RichAsyncFunction<FilterResult, AnalysisResult> {
+public class AnthropicAnalysisFunction extends RichAsyncFunction<EnrichedFilterResult, AnalysisResult> {
     // Async Flink function that calls the Anthropic API to analyse flagged transactions.
 
     private static final Logger LOG = LoggerFactory.getLogger(AnthropicAnalysisFunction.class);
@@ -68,8 +69,9 @@ public class AnthropicAnalysisFunction extends RichAsyncFunction<FilterResult, A
     Usage: Invoked by Flink's AsyncDataStream, not called directly.
     */
     @Override
-    public void asyncInvoke(FilterResult input, ResultFuture<AnalysisResult> resultFuture) {
-        String prompt = PromptBuilder.buildPrompt(input);
+    public void asyncInvoke(EnrichedFilterResult input, ResultFuture<AnalysisResult> resultFuture) {
+        FilterResult current = input.getCurrent();
+        String prompt = PromptBuilder.buildPrompt(current, input.getRecentHistory());
 
         CompletableFuture.supplyAsync(() -> {
             MessageCreateParams params = MessageCreateParams.builder()
@@ -81,13 +83,13 @@ public class AnthropicAnalysisFunction extends RichAsyncFunction<FilterResult, A
             return client.messages().create(params);
         }, executor).thenAccept(response -> {
             try {
-                AnalysisResult result = parseResponse(input, response);
+                AnalysisResult result = parseResponse(current, response);
                 resultFuture.complete(Collections.singleton(result));
             } catch (Exception e) {
-                LOG.error("Failed to parse Anthropic response for transaction {}", input.transaction().transactionId(), e);
+                LOG.error("Failed to parse Anthropic response for transaction {}", current.getTransaction().getTransactionId(), e);
                 AnalysisResult fallback = new AnalysisResult(
-                        input.transaction().transactionId(),
-                        input,
+                        current.getTransaction().getTransactionId(),
+                        current,
                         "PARSE_ERROR",
                         "Failed to parse model response: " + e.getMessage(),
                         0.0,
@@ -97,10 +99,10 @@ public class AnthropicAnalysisFunction extends RichAsyncFunction<FilterResult, A
                 resultFuture.complete(Collections.singleton(fallback));
             }
         }).exceptionally(throwable -> {
-            LOG.error("Anthropic API call failed for transaction {}", input.transaction().transactionId(), throwable);
+            LOG.error("Anthropic API call failed for transaction {}", current.getTransaction().getTransactionId(), throwable);
             AnalysisResult fallback = new AnalysisResult(
-                    input.transaction().transactionId(),
-                    input,
+                    current.getTransaction().getTransactionId(),
+                    current,
                     "API_ERROR",
                     "API call failed: " + throwable.getMessage(),
                     0.0,
@@ -114,11 +116,12 @@ public class AnthropicAnalysisFunction extends RichAsyncFunction<FilterResult, A
 
     // Returns a TIMEOUT fallback result if the API call exceeds the 120s limit.
     @Override
-    public void timeout(FilterResult input, ResultFuture<AnalysisResult> resultFuture) {
-        LOG.warn("Timeout analysing transaction {}", input.transaction().transactionId());
+    public void timeout(EnrichedFilterResult input, ResultFuture<AnalysisResult> resultFuture) {
+        FilterResult current = input.getCurrent();
+        LOG.warn("Timeout analysing transaction {}", current.getTransaction().getTransactionId());
         AnalysisResult timeoutResult = new AnalysisResult(
-                input.transaction().transactionId(),
-                input,
+                current.getTransaction().getTransactionId(),
+                current,
                 "TIMEOUT",
                 "Analysis timed out",
                 0.0,
@@ -153,7 +156,7 @@ public class AnthropicAnalysisFunction extends RichAsyncFunction<FilterResult, A
         String reasoning = json.get("reasoning").asText();
 
         return new AnalysisResult(
-                input.transaction().transactionId(),
+                input.getTransaction().getTransactionId(),
                 input,
                 verdict,
                 reasoning,

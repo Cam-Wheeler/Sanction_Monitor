@@ -1119,6 +1119,19 @@ resource "kubernetes_ingress_v1" "sanction_monitor" {
         }
 
         path {
+          path = "/test-sequence"
+          path_type = "Exact"
+          backend {
+            service {
+              name = kubernetes_service_v1.transaction_generator.metadata[0].name
+              port {
+                number = 8080
+              }
+            }
+          }
+        }
+
+        path {
           path = "/"
           path_type = "Prefix"
           backend {

@@ -38,9 +38,9 @@ def load_stats() -> pd.Series:
         df = pd.read_sql_query(
             """
             SELECT
-                COUNT(*)                                              AS total,
-                SUM(CASE WHEN flagged = true  THEN 1 ELSE 0 END)    AS flagged,
-                SUM(CASE WHEN flagged = false THEN 1 ELSE 0 END)    AS approved
+                COUNT(*)                                                        AS total,
+                COALESCE(SUM(CASE WHEN flagged = true  THEN 1 ELSE 0 END), 0) AS flagged,
+                COALESCE(SUM(CASE WHEN flagged = false THEN 1 ELSE 0 END), 0) AS approved
             FROM transactions
             """,
             conn,
@@ -144,8 +144,8 @@ else:
     VERDICT_COLOR = {"CONFIRMED": "red", "POSSIBLE": "orange", "CLEARED": "green"}
 
     for _, row in flagged_df.iterrows():
-        sender_score   = row["sender_match_score"]   or 0.0
-        receiver_score = row["receiver_match_score"] or 0.0
+        sender_score   = 0.0 if pd.isna(row["sender_match_score"])   else row["sender_match_score"]
+        receiver_score = 0.0 if pd.isna(row["receiver_match_score"]) else row["receiver_match_score"]
 
         # Primary matched party is the higher-scoring one
         if sender_score >= receiver_score and sender_score > 0:

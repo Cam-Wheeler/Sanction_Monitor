@@ -30,7 +30,7 @@ public class AnalysisResultSerializationSchema implements KafkaRecordSerializati
             objectMapper = new ObjectMapper();
         }
 
-        byte[] key = element.transactionId().toString().getBytes(StandardCharsets.UTF_8);
+        byte[] key = element.getTransactionId().toString().getBytes(StandardCharsets.UTF_8);
         byte[] value;
 
         try {
