@@ -126,6 +126,43 @@ private List<String> transactionTypes = List.of(
         );
     }
 
+    /*
+    Generates a test sequence of 4 transactions from the same sanctioned individual:
+    3 small transactions followed by 1 large one. The sanctioned person is always the sender.
+    Receivers are random valid (non-sanctioned) individuals.
+    */
+    public List<Transaction> generateTestSequence() {
+        Person sanctionedPerson = getRandomPerson(sanctionedEntities);
+        UUID senderUid = UUID.randomUUID();
+        UUID senderAccount = UUID.randomUUID();
+        String senderBank = banks.get((int)(Math.random() * banks.size()));
+        String senderCountry = countries.get((int)(Math.random() * countries.size()));
+
+        double[] amounts = {150.0, 275.0, 320.0, 9500.0};
+        List<Transaction> transactions = new java.util.ArrayList<>();
+
+        for (double amount : amounts) {
+            TransactionParty sender = new TransactionParty(
+                    "Sender", senderUid, sanctionedPerson.name(), sanctionedPerson.nationality(),
+                    senderAccount, senderBank, senderCountry);
+
+            Person validPerson = getRandomPerson(validEntities);
+            TransactionParty receiver = new TransactionParty(
+                    "Receiver", UUID.randomUUID(), validPerson.name(), validPerson.nationality(),
+                    UUID.randomUUID(),
+                    banks.get((int)(Math.random() * banks.size())),
+                    countries.get((int)(Math.random() * countries.size())));
+
+            String transactionType = transactionTypes.get((int)(Math.random() * transactionTypes.size()));
+            transactions.add(new Transaction(
+                    UUID.randomUUID(), amount,
+                    LocalDate.now().toString(), LocalTime.now().toString(),
+                    transactionType, sender, receiver));
+        }
+
+        return transactions;
+    }
+
     private Person getRandomPerson(List<Person> people) {
         // Selects a random person from a list of people.
         return people.get((int) (Math.random() * people.size()));

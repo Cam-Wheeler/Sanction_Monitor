@@ -24,5 +24,11 @@ public class MainController {
     public String start(@PathVariable("n") int iterations) {
         producerService.produceTransactions(iterations);
         return "Transactions generated";
-    } 
+    }
+
+    @PostMapping("/test-sequence")
+    public String testSequence() {
+        producerService.produceTestSequence();
+        return "Test sequence generated: 3 small + 1 large transaction from the same sanctioned individual";
+    }
 }
