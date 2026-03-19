@@ -54,7 +54,7 @@ public class AnalyserJob {
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
-        env.enableCheckpointing(60_000);
+        env.enableCheckpointing(60_000); // Snapshot state every minute.
 
         // Register Kryo serialiser for UUID to avoid KryoException on checkpoint
         env.getConfig().addDefaultKryoSerializer(UUID.class, UUIDSerializer.class);
@@ -64,23 +64,26 @@ public class AnalyserJob {
                 .setBootstrapServers(bootstrapServers)
                 .setTopics(INPUT_TOPIC)
                 .setGroupId(GROUP_ID)
-                .setStartingOffsets(OffsetsInitializer.earliest())
+                .setStartingOffsets(OffsetsInitializer.earliest()) // When no offsets commited, start fresh. 
                 .setValueOnlyDeserializer(new FilterResultDeserializationSchema())
                 .build();
 
         // Watermark strategy with bounded out-of-orderness for event-time processing
+        // Combines watermark generator (how we advance the watermark) with time stamp assigner (how we extract even timestamp).
         WatermarkStrategy<FilterResult> watermarkStrategy = WatermarkStrategy
                 .<FilterResult>forBoundedOutOfOrderness(Duration.ofMinutes(1))
                 .withTimestampAssigner((event, recordTimestamp) ->
                         TimestampUtils.toEpochMillis(event.getTransaction().getDate(), event.getTransaction().getTime()));
 
+
+        // Connect the source with the watermark strategy and gather flagged transactions. 
         DataStream<FilterResult> flaggedTransactions = env
                 .fromSource(source, watermarkStrategy, "Kafka Source")
                 .filter(FilterResult::isFlagged);
 
         // Enrich each transaction with recent history for the same flagged party
         DataStream<EnrichedFilterResult> enrichedTransactions = flaggedTransactions
-                .keyBy(new FlaggedPartyKeySelector())
+                .keyBy(new FlaggedPartyKeySelector()) // Partition the stream by key. Flink knows now what key to use when scoping the context. Transaction enrichment runs in that context only.
                 .process(new TransactionEnrichmentFunction());
 
         // Async transform: call Anthropic API for each enriched transaction
@@ -98,9 +101,10 @@ public class AnalyserJob {
                 .setRecordSerializer(new AnalysisResultSerializationSchema(OUTPUT_TOPIC))
                 .build();
 
-        analysisResults.sinkTo(sink);
+        analysisResults.sinkTo(sink); // Publish to the sink. 
 
-        env.execute("Transaction Analyser");
+        env.execute("Transaction Analyser"); // Actually run the job. Creates the graph,
+        // submits to job manager which distributes to task managers!
     }
 
     public static class UUIDSerializer extends Serializer<UUID> {

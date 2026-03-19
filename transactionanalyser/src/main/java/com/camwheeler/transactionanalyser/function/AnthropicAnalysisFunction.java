@@ -29,6 +29,7 @@ public class AnthropicAnalysisFunction extends RichAsyncFunction<EnrichedFilterR
     private static final Logger LOG = LoggerFactory.getLogger(AnthropicAnalysisFunction.class);
     private static final String MODEL = "claude-sonnet-4-6";
 
+    // Transient means flink will not add it to the checkpoint, open will assign it on spin up. 
     private transient AnthropicClient client;
     private transient ObjectMapper objectMapper;
     private transient ExecutorService executor;
@@ -73,7 +74,8 @@ public class AnthropicAnalysisFunction extends RichAsyncFunction<EnrichedFilterR
         FilterResult current = input.getCurrent();
         String prompt = PromptBuilder.buildPrompt(current, input.getRecentHistory());
 
-        CompletableFuture.supplyAsync(() -> {
+        // Submit to executor. 
+        CompletableFuture.supplyAsync(() -> { // Lambda runs on the threadpool
             MessageCreateParams params = MessageCreateParams.builder()
                     .model(Model.CLAUDE_SONNET_4_6)
                     .maxTokens(1024L)
@@ -84,7 +86,7 @@ public class AnthropicAnalysisFunction extends RichAsyncFunction<EnrichedFilterR
         }, executor).thenAccept(response -> {
             try {
                 AnalysisResult result = parseResponse(current, response);
-                resultFuture.complete(Collections.singleton(result));
+                resultFuture.complete(Collections.singleton(result)); // Hand back to flink.
             } catch (Exception e) {
                 LOG.error("Failed to parse Anthropic response for transaction {}", current.getTransaction().getTransactionId(), e);
                 AnalysisResult fallback = new AnalysisResult(
@@ -96,7 +98,7 @@ public class AnthropicAnalysisFunction extends RichAsyncFunction<EnrichedFilterR
                         MODEL,
                         Instant.now().toString()
                 );
-                resultFuture.complete(Collections.singleton(fallback));
+                resultFuture.complete(Collections.singleton(fallback)); 
             }
         }).exceptionally(throwable -> {
             LOG.error("Anthropic API call failed for transaction {}", current.getTransaction().getTransactionId(), throwable);

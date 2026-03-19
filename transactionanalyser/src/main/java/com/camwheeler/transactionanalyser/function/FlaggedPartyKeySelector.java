@@ -4,9 +4,11 @@ import com.camwheeler.transactionanalyser.model.FilterResult;
 import org.apache.flink.api.java.functions.KeySelector;
 
 // Keys FilterResult by the UID of the flagged party. When both parties are flagged,
-// keys by the higher-scoring match.
+// keys by the higher-scoring match. 
 public class FlaggedPartyKeySelector implements KeySelector<FilterResult, String> {
 
+
+    // Called on every event to determine which partition is belongs to. Ours is set to 1 currently.
     @Override
     public String getKey(FilterResult value) {
         boolean hasSender = value.getSenderMatch() != null;

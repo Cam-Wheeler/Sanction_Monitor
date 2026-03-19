@@ -24,8 +24,11 @@ public class TransactionEnrichmentFunction
     static final long HISTORY_TTL_MILLIS = 30 * 60 * 1000L; // 30 minutes
     static final int MAX_HISTORY_SIZE = 20;
 
+    // Stores lists for each of the keys. Flink handles it. 
+    // Scoped for each key. 
     private transient ListState<FilterResult> historyState;
 
+    // Called when the operator starts.
     @Override
     public void open(Configuration parameters) {
         ListStateDescriptor<FilterResult> descriptor =
@@ -33,6 +36,7 @@ public class TransactionEnrichmentFunction
         historyState = getRuntimeContext().getListState(descriptor);
     }
 
+    // Called for every element that comes through the operator. 
     @Override
     public void processElement(FilterResult current, Context ctx, Collector<EnrichedFilterResult> out)
             throws Exception {
@@ -51,7 +55,7 @@ public class TransactionEnrichmentFunction
         LOG.info("Enriching transaction {} with {} history entries for party {}",
                 current.getTransaction().getTransactionId(), history.size(), ctx.getCurrentKey());
 
-        // Emit enriched result — current transaction is NOT in its own history
+        // Emit enriched result for current transaction. It is NOT in its own history
         out.collect(new EnrichedFilterResult(current, new ArrayList<>(history)));
 
         // Add current to history, cap at MAX_HISTORY_SIZE (remove oldest first)
@@ -63,10 +67,11 @@ public class TransactionEnrichmentFunction
         // Write updated history back to state
         historyState.update(history);
 
-        // Register cleanup timer
+        // Register cleanup timer, deferred callback that Flink calls onTimer when watermark hits the time.
         ctx.timerService().registerEventTimeTimer(currentTimestamp + HISTORY_TTL_MILLIS);
     }
 
+    // Called when a registered timer is fired. 
     @Override
     public void onTimer(long timestamp, OnTimerContext ctx, Collector<EnrichedFilterResult> out)
             throws Exception {
